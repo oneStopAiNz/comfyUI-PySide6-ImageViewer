@@ -88,7 +88,7 @@ class ImageViewer(QGraphicsView):
         self.overlay.hide()
         self.overlay_visible = True # We'll toggle this state
 
-    def load_image(self, path):
+    def load_image(self, path, color_tag=None):
         """Loads an image with maximum speed. Adjustments are reset but applied lazily."""
         self.original_path = path
         if not path or not os.path.exists(path):
@@ -106,7 +106,7 @@ class ImageViewer(QGraphicsView):
         self.original_pixmap = pixmap
         self.pixmap_item.setPixmap(pixmap)
         self.setSceneRect(self.pixmap_item.boundingRect())
-        self.update_overlay(path, pixmap)
+        self.update_overlay(path, pixmap, color_tag)
         
         # Reset internal adjustment state for new image
         self.current_adjustments = {}
@@ -183,7 +183,7 @@ class ImageViewer(QGraphicsView):
         except Exception as e:
             print(f"Filter error: {e}")
 
-    def update_overlay(self, path, pixmap):
+    def update_overlay(self, path, pixmap, color_tag=None):
         """Updates the information overlay with filename and resolution."""
         if not path or pixmap.isNull():
             self.overlay.hide()
@@ -193,7 +193,20 @@ class ImageViewer(QGraphicsView):
         w = pixmap.width()
         h = pixmap.height()
         
-        self.overlay.setText(f"{filename}\n{w} x {h} px")
+        # Color tag indicator
+        tag_html = ""
+        if color_tag:
+            color_map = {
+                "red": "#ff4444",
+                "yellow": "#ffcc00",
+                "green": "#44ff44",
+                "blue": "#4444ff",
+                "magenta": "#ff44ff"
+            }
+            hex_color = color_map.get(color_tag.lower(), "white")
+            tag_html = f"<span style='color:{hex_color}; font-size: 20px;'> ● </span>"
+
+        self.overlay.setText(f"<html>{tag_html}{filename}<br/>{w} x {h} px</html>")
         self.overlay.adjustSize()
         self.position_overlay()
         

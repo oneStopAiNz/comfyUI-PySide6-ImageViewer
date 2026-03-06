@@ -7,6 +7,7 @@ class ImageAdjustPanel(QWidget):
     """
     adjustments_changed = Signal(dict)
     save_notes_requested = Signal(str)
+    color_tag_selected = Signal(str) # color name or None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,6 +65,34 @@ class ImageAdjustPanel(QWidget):
         self.save_btn.clicked.connect(self.on_save_clicked)
         self.layout.addWidget(self.save_btn)
         
+        # Color Tags Section
+        self.layout.addWidget(QLabel("Color Tags (Alt+1..5)"))
+        tags_layout = QHBoxLayout()
+        
+        # (Color Name, Hex Code)
+        self.color_tags = [
+            ("red", "#ff4444"),
+            ("yellow", "#ffcc00"),
+            ("green", "#44ff44"),
+            ("blue", "#4444ff"),
+            ("magenta", "#ff44ff")
+        ]
+        
+        for name, hexcode in self.color_tags:
+            btn = QPushButton()
+            btn.setFixedSize(24, 24)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(f"background-color: {hexcode}; border-radius: 12px; border: 2px solid transparent;")
+            btn.clicked.connect(lambda checked=False, n=name: self.color_tag_selected.emit(n))
+            tags_layout.addWidget(btn)
+            
+        clear_tag_btn = QPushButton("None")
+        clear_tag_btn.clicked.connect(lambda: self.color_tag_selected.emit(None))
+        tags_layout.addWidget(clear_tag_btn)
+        
+        tags_layout.addStretch()
+        self.layout.addLayout(tags_layout)
+
         self.reset_btn = QPushButton("Reset Adjustments")
         self.reset_btn.clicked.connect(self.reset_adjustments)
         self.layout.addWidget(self.reset_btn)

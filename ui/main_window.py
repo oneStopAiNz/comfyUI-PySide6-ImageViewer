@@ -7,7 +7,7 @@ from ui.gallery_panel import GalleryPanel
 from ui.image_viewer import ImageViewer
 from ui.workflow_inspector import WorkflowInspector
 from ui.image_adjust_panel import ImageAdjustPanel
-from utils.png_metadata import load_metadata_from_png, save_notes_to_png, json
+from utils.png_metadata import load_metadata_from_png, save_metadata_to_png, json
 from core.comfy_parser import parse_workflow
 from core.workflow_diff import compare_nodes
 
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         self.inspector.node_combo.currentIndexChanged.connect(self.on_inspector_node_changed)
         self.adjuster.adjustments_changed.connect(self.viewer.apply_adjustments)
         self.adjuster.save_notes_requested.connect(self.on_save_notes)
+        self.adjuster.color_tag_selected.connect(self.on_color_tag_selected)
         
         # State tracking for diffing
         self.previous_workflow_data = None
@@ -81,6 +82,18 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_A), self, self.tag_image_a)
         QShortcut(QKeySequence(Qt.Key_B), self, self.tag_image_b)
         QShortcut(QKeySequence(Qt.Key_C), self, self.toggle_comparison)
+
+        # Color Tagging Shortcuts (Alt+1..5)
+        QShortcut(QKeySequence("Alt+1"), self, lambda: self.on_color_tag_selected("red"))
+        QShortcut(QKeySequence("Alt+2"), self, lambda: self.on_color_tag_selected("yellow"))
+        QShortcut(QKeySequence("Alt+3"), self, lambda: self.on_color_tag_selected("green"))
+        QShortcut(QKeySequence("Alt+4"), self, lambda: self.on_color_tag_selected("blue"))
+        QShortcut(QKeySequence("Alt+5"), self, lambda: self.on_color_tag_selected("magenta"))
+        QShortcut(QKeySequence("Alt+0"), self, lambda: self.on_color_tag_selected(None))
+
+        # Folder Reload
+        QShortcut(QKeySequence("Ctrl+R"), self, self.gallery.reload_folder)
+
         QShortcut(QKeySequence(Qt.Key_F12), self, self.showFullScreen)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.showNormal)
 
@@ -92,6 +105,11 @@ class MainWindow(QMainWindow):
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.open_folder)
         file_menu.addAction(open_action)
+        
+        reload_action = QAction("Reload Folder", self)
+        reload_action.setShortcut("Ctrl+R")
+        reload_action.triggered.connect(self.gallery.reload_folder)
+        file_menu.addAction(reload_action)
 
     def open_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Image Directory")
@@ -135,10 +153,14 @@ class MainWindow(QMainWindow):
             self.current_workflow_data = None
             self.inspector.load_workflow({})
 
-        # Load notes into the news pane
+        # Load notes and color into the Adjuster pane
         notes = all_metadata.get('notes', "")
+        color_tag = all_metadata.get('color_tag', None)
         self.adjuster.set_notes(notes)
         self.adjuster.reset_adjustments()
+        
+        # Update Viewer with tag info
+        self.viewer.update_overlay(path, self.viewer.pixmap_item.pixmap(), color_tag)
 
         # 5. Diff & Highlight
         self.run_diff()
@@ -147,11 +169,24 @@ class MainWindow(QMainWindow):
         """Saves notes to the current image file."""
         path = self.gallery.get_current_image_path()
         if path:
-            success = save_notes_to_png(path, notes)
+            success = save_metadata_to_png(path, {'notes': notes})
             if success:
                 self.statusBar().showMessage("Notes saved to image metadata.", 3000)
             else:
                 QMessageBox.warning(self, "Save Failed", "Could not save notes to image.")
+
+    def on_color_tag_selected(self, color):
+        """Applies a color tag to the current image."""
+        path = self.gallery.get_current_image_path()
+        if path:
+            success = save_metadata_to_png(path, {'color_tag': color or ""})
+            if success:
+                self.statusBar().showMessage(f"Tagged as {color if color else 'None'}", 3000)
+                # Update UI immediately
+                self.gallery.update_image_tag(path, color)
+                self.viewer.update_overlay(path, self.viewer.pixmap_item.pixmap(), color)
+            else:
+                QMessageBox.warning(self, "Tag Failed", "Could not save color tag to image.")
 
     def on_inspector_node_changed(self, index):
         """When the user changes the selected node in the inspector, update highlights."""
