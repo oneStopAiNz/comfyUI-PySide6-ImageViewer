@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         
         # Set up Shortcuts
         self.setup_shortcuts()
+        
+        # Store initial splitter sizes for toggling
+        self.last_splitter_sizes = [200, 500, 250, 250]
 
     def setup_shortcuts(self):
         """Set up window-level shortcuts that work regardless of focus."""
@@ -79,6 +82,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_5), self, lambda: self.viewer.set_zoom_level(5.0))
         
         QShortcut(QKeySequence(Qt.Key_I), self, self.viewer.toggle_info_overlay)
+        QShortcut(QKeySequence(Qt.Key_V), self, self.toggle_side_panels)
         QShortcut(QKeySequence(Qt.Key_A), self, self.tag_image_a)
         QShortcut(QKeySequence(Qt.Key_B), self, self.tag_image_b)
         QShortcut(QKeySequence(Qt.Key_C), self, self.toggle_comparison)
@@ -105,6 +109,7 @@ class MainWindow(QMainWindow):
         
         reload_action = QAction("Reload Folder", self)
         reload_action.setShortcut("Ctrl+R")
+        reload_action.setShortcutContext(Qt.WindowShortcut) # Ensure it works regardless of focus
         reload_action.triggered.connect(self.gallery.reload_folder)
         file_menu.addAction(reload_action)
 
@@ -231,6 +236,26 @@ class MainWindow(QMainWindow):
             self.viewer.set_image_b(path)
             # Temporary overlay feedback
             self.statusBar().showMessage(f"Tagged as Image B: {os.path.basename(path)}", 3000)
+
+    def toggle_side_panels(self):
+        """Toggles visibility of side panels (Gallery, Inspector, Adjuster)."""
+        # If any panel is visible, collapse them all
+        any_visible = (not self.gallery.isHidden() or 
+                       not self.inspector.isHidden() or 
+                       not self.adjuster.isHidden())
+        
+        if any_visible:
+            # Save current sizes before hiding
+            self.last_splitter_sizes = self.splitter.sizes()
+            self.gallery.hide()
+            self.inspector.hide()
+            self.adjuster.hide()
+        else:
+            # Restore visibility and sizes
+            self.gallery.show()
+            self.inspector.show()
+            self.adjuster.show()
+            self.splitter.setSizes(self.last_splitter_sizes)
 
     # keyPressEvent is now handled via QShortcut for better focus handling
 
