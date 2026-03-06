@@ -91,9 +91,6 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Alt+5"), self, lambda: self.on_color_tag_selected("magenta"))
         QShortcut(QKeySequence("Alt+0"), self, lambda: self.on_color_tag_selected(None))
 
-        # Folder Reload
-        QShortcut(QKeySequence("Ctrl+R"), self, self.gallery.reload_folder)
-
         QShortcut(QKeySequence(Qt.Key_F12), self, self.showFullScreen)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.showNormal)
 
