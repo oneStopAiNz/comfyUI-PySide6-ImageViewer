@@ -6,7 +6,8 @@ from PySide6.QtCore import Qt
 from ui.gallery_panel import GalleryPanel
 from ui.image_viewer import ImageViewer
 from ui.workflow_inspector import WorkflowInspector
-from utils.png_metadata import load_prompt_from_png
+from ui.image_adjust_panel import ImageAdjustPanel
+from utils.png_metadata import load_metadata_from_png, save_notes_to_png, json
 from core.comfy_parser import parse_workflow
 from core.workflow_diff import compare_nodes
 
@@ -31,14 +32,16 @@ class MainWindow(QMainWindow):
         self.gallery = GalleryPanel()
         self.viewer = ImageViewer()
         self.inspector = WorkflowInspector()
+        self.adjuster = ImageAdjustPanel()
         
         # Add them to the splitter
         self.splitter.addWidget(self.gallery)
         self.splitter.addWidget(self.viewer)
         self.splitter.addWidget(self.inspector)
+        self.splitter.addWidget(self.adjuster)
         
         # Set initial sizes (relative to layout)
-        self.splitter.setSizes([300, 600, 300])
+        self.splitter.setSizes([200, 500, 250, 250])
         
         # Set up menu
         self.setup_menu()
@@ -46,6 +49,8 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.gallery.image_selected.connect(self.on_image_selected)
         self.inspector.node_combo.currentIndexChanged.connect(self.on_inspector_node_changed)
+        self.adjuster.adjustments_changed.connect(self.viewer.apply_adjustments)
+        self.adjuster.save_notes_requested.connect(self.on_save_notes)
         
         # State tracking for diffing
         self.previous_workflow_data = None
@@ -64,7 +69,18 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_S), self, self.gallery.sort_by_date)
         QShortcut(QKeySequence(Qt.Key_Equal), self, self.viewer.zoom_in)
         QShortcut(QKeySequence(Qt.Key_Minus), self, self.viewer.zoom_out)
+        
+        # Numeric Zoom Shortcuts
+        QShortcut(QKeySequence(Qt.Key_1), self, lambda: self.viewer.set_zoom_level(1.0))
+        QShortcut(QKeySequence(Qt.Key_2), self, lambda: self.viewer.set_zoom_level(2.0))
+        QShortcut(QKeySequence(Qt.Key_3), self, lambda: self.viewer.set_zoom_level(3.0))
+        QShortcut(QKeySequence(Qt.Key_4), self, lambda: self.viewer.set_zoom_level(4.0))
+        QShortcut(QKeySequence(Qt.Key_5), self, lambda: self.viewer.set_zoom_level(5.0))
+        
         QShortcut(QKeySequence(Qt.Key_I), self, self.viewer.toggle_info_overlay)
+        QShortcut(QKeySequence(Qt.Key_A), self, self.tag_image_a)
+        QShortcut(QKeySequence(Qt.Key_B), self, self.tag_image_b)
+        QShortcut(QKeySequence(Qt.Key_C), self, self.toggle_comparison)
         QShortcut(QKeySequence(Qt.Key_F12), self, self.showFullScreen)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.showNormal)
 
@@ -87,21 +103,28 @@ class MainWindow(QMainWindow):
         # 1. Update Viewer
         self.viewer.load_image(path)
         
-        # 2. Extract Metadata
-        metadata = load_prompt_from_png(path)
+        # 2. Extract Metadata (Workflow + Notes)
+        all_metadata = load_metadata_from_png(path)
+        
+        # Workflow parsing
+        workflow_str = all_metadata.get('workflow') or all_metadata.get('prompt')
         
         # Keep track of previous data to compare
         self.previous_workflow_data = self.current_workflow_data
         
-        if metadata:
+        if workflow_str:
             # 3. Parse Workflow
-            self.current_workflow_data = parse_workflow(metadata)
+            try:
+                workflow_json = json.loads(workflow_str)
+                self.current_workflow_data = parse_workflow(workflow_json)
+            except:
+                self.current_workflow_data = None
             
             # Save the currently selected node id to try and keep it active
             current_node_id = self.inspector.get_current_node_id()
             
             # 4. Update Inspector UI
-            self.inspector.load_workflow(self.current_workflow_data)
+            self.inspector.load_workflow(self.current_workflow_data or {})
             
             # Try to re-select the same node ID in the new image
             if current_node_id:
@@ -112,8 +135,23 @@ class MainWindow(QMainWindow):
             self.current_workflow_data = None
             self.inspector.load_workflow({})
 
-        # 5. Diff & Highlight (Task 9)
+        # Load notes into the news pane
+        notes = all_metadata.get('notes', "")
+        self.adjuster.set_notes(notes)
+        self.adjuster.reset_adjustments()
+
+        # 5. Diff & Highlight
         self.run_diff()
+
+    def on_save_notes(self, notes):
+        """Saves notes to the current image file."""
+        path = self.gallery.get_current_image_path()
+        if path:
+            success = save_notes_to_png(path, notes)
+            if success:
+                self.statusBar().showMessage("Notes saved to image metadata.", 3000)
+            else:
+                QMessageBox.warning(self, "Save Failed", "Could not save notes to image.")
 
     def on_inspector_node_changed(self, index):
         """When the user changes the selected node in the inspector, update highlights."""
@@ -139,6 +177,28 @@ class MainWindow(QMainWindow):
         else:
              # Node might not exist in previous image workflow
              self.inspector.highlight_parameters([])
+
+    def toggle_comparison(self):
+        """Toggles the wipe comparison mode in the viewer."""
+        active = self.viewer.toggle_comparison_mode()
+        if not active and not (self.viewer.path_a and self.viewer.path_b):
+             QMessageBox.information(self, "Comparison Mode", "Please tag two images first using keys 'A' and 'B'.")
+
+    def tag_image_a(self):
+        """Tags the currently selected image as Image A."""
+        path = self.gallery.get_current_image_path()
+        if path:
+            self.viewer.set_image_a(path)
+            # Temporary overlay feedback
+            self.statusBar().showMessage(f"Tagged as Image A: {os.path.basename(path)}", 3000)
+
+    def tag_image_b(self):
+        """Tags the currently selected image as Image B."""
+        path = self.gallery.get_current_image_path()
+        if path:
+            self.viewer.set_image_b(path)
+            # Temporary overlay feedback
+            self.statusBar().showMessage(f"Tagged as Image B: {os.path.basename(path)}", 3000)
 
     # keyPressEvent is now handled via QShortcut for better focus handling
 

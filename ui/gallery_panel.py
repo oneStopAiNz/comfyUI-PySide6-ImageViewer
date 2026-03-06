@@ -148,3 +148,9 @@ class GalleryPanel(QWidget):
                 if self.list_widget.item(i).data(Qt.UserRole) == selected_path:
                     self.list_widget.setCurrentRow(i)
                     break
+    def get_current_image_path(self):
+        """Returns the path of the currently selected image."""
+        selected_items = self.list_widget.selectedItems()
+        if selected_items:
+            return selected_items[0].data(Qt.UserRole)
+        return None

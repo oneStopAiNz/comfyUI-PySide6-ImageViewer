@@ -1,31 +1,47 @@
 import json
 from PIL import Image
 
-def load_prompt_from_png(path):
+def load_metadata_from_png(path):
     """
-    Extracts ComfyUI JSON metadata from a PNG file.
-    ComfyUI stores the workflow data in the 'workflow' or 'prompt' text chunks in the PNG metadata.
-    
+    Extracts all text metadata from a PNG file.
     Returns:
-        dict: The parsed JSON metadata, or None if no valid metadata is found.
+        dict: All info keys, or None if error.
     """
     try:
         with Image.open(path) as img:
-            # PNG metadata is stored in img.info
-            # ComfyUI typically uses 'workflow' and 'prompt' keys. This will prioritize 'workflow'
-            # if both exist, otherwise fallback to 'prompt', or return None if neither exist.
-            
-            metadata_str = None
-            if 'workflow' in img.info:
-                metadata_str = img.info['workflow']
-            elif 'prompt' in img.info:
-                metadata_str = img.info['prompt']
-                
-            if metadata_str:
-                return json.loads(metadata_str)
-            else:
-                return None
-                
+            return img.info
     except Exception as e:
         print(f"Error reading metadata from {path}: {e}")
-        return None
+        return {}
+
+def save_notes_to_png(path, notes):
+    """
+    Saves notes to the 'notes' text chunk in the PNG, preserving all other metadata.
+    """
+    try:
+        from PIL.PngImagePlugin import PngInfo
+        
+        # 1. Read existing metadata and image data
+        with Image.open(path) as img:
+            # We must load the image data into memory before closing the file
+            # or saving to the same path
+            img.load() 
+            info = img.info.copy()
+            
+            # 2. Update/Add notes
+            info['notes'] = notes
+            
+            # 3. Create PngInfo object for saving
+            target_info = PngInfo()
+            for k, v in info.items():
+                if isinstance(v, str):
+                    target_info.add_text(k, v)
+            
+            # 4. Save back to the same path (or temp then rename if paranoid)
+            # We use the existing img object which is already in memory
+            img.save(path, "PNG", pnginfo=target_info)
+            return True
+            
+    except Exception as e:
+        print(f"Error saving metadata to {path}: {e}")
+        return False
