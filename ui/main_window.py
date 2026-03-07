@@ -95,6 +95,9 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Alt+5"), self, lambda: self.on_color_tag_selected("magenta"))
         QShortcut(QKeySequence("Alt+0"), self, lambda: self.on_color_tag_selected(None))
 
+        # Fullscreen and Toggles
+        QShortcut(QKeySequence(Qt.Key_F11), self, self.on_toggle_auto_fit)
+        QShortcut(QKeySequence(Qt.Key_F10), self, self.on_toggle_apply_on_load)
         QShortcut(QKeySequence(Qt.Key_F12), self, self.showFullScreen)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.showNormal)
 
@@ -159,7 +162,10 @@ class MainWindow(QMainWindow):
         notes = all_metadata.get('notes', "")
         color_tag = all_metadata.get('color_tag', None)
         self.adjuster.set_notes(notes)
-        self.adjuster.reset_adjustments()
+        
+        # Persistence: Only reset if persistence mode is OFF
+        if not self.viewer.apply_adj_on_load:
+            self.adjuster.reset_adjustments()
         
         # Update Viewer with tag info
         self.viewer.update_overlay(path, self.viewer.pixmap_item.pixmap(), color_tag)
@@ -256,6 +262,18 @@ class MainWindow(QMainWindow):
             self.inspector.show()
             self.adjuster.show()
             self.splitter.setSizes(self.last_splitter_sizes)
+
+    def on_toggle_auto_fit(self):
+        """Toggles auto-fit-to-view mode in the viewer."""
+        active = self.viewer.toggle_auto_fit()
+        status = "ENABLED" if active else "DISABLED"
+        self.statusBar().showMessage(f"Auto-Fit Mode: {status}", 3000)
+
+    def on_toggle_apply_on_load(self):
+        """Toggles whether current adjustments persist when loading new images."""
+        active = self.viewer.toggle_apply_on_load()
+        status = "ENABLED" if active else "DISABLED"
+        self.statusBar().showMessage(f"Persistent Adjustments: {status}", 3000)
 
     # keyPressEvent is now handled via QShortcut for better focus handling
 

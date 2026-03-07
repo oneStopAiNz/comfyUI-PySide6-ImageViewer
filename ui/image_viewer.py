@@ -74,6 +74,12 @@ class ImageViewer(QGraphicsView):
         # Track the zoom factor to properly maintain zoom levels
         self.zoom_factor = 1.1
 
+        # Auto-fit mode
+        self.auto_fit_mode = False
+        
+        # Persistent adjustments mode
+        self.apply_adj_on_load = False
+
         # Info Overlay (Bottom Left)
         self.overlay = QLabel(self)
         self.overlay.setStyleSheet("""
@@ -106,10 +112,19 @@ class ImageViewer(QGraphicsView):
         self.original_pixmap = pixmap
         self.pixmap_item.setPixmap(pixmap)
         self.setSceneRect(self.pixmap_item.boundingRect())
-        self.update_overlay(path, pixmap, color_tag)
         
-        # Reset internal adjustment state for new image
-        self.current_adjustments = {}
+        # Apply auto-fit if enabled
+        if self.auto_fit_mode:
+            self.fit_in_view()
+            
+        # Persistence: Apply current adjustments or reset
+        if self.apply_adj_on_load and self.current_adjustments:
+            self.apply_adjustments(self.current_adjustments)
+        else:
+            # Reset internal adjustment state for new image
+            self.current_adjustments = {}
+            
+        self.update_overlay(path, pixmap, color_tag)
 
     def apply_adjustments(self, adj):
         """Debounced application of adjustments. Instant bypass if all values are zero."""
@@ -159,13 +174,28 @@ class ImageViewer(QGraphicsView):
                 pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
                 
             if adj.get("brightness", 0) != 0:
-                factor = 1.0 + (adj["brightness"] / 200.0)
+                factor = 1.0 + (adj["brightness"] / 100.0)
                 pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
                 
             if adj.get("contrast", 0) != 0:
                 factor = 1.0 + (adj["contrast"] / 100.0)
                 if factor <= 0: factor = 0.01
                 pil_img = ImageEnhance.Contrast(pil_img).enhance(factor)
+
+            if adj.get("gamma", 0) != 0:
+                # Gamma adjustment using a lookup table
+                # Positive slider -> gamma > 1 (brighter mids), Negative -> gamma < 1 (darker mids)
+                # Map -100..100 to roughly 0.2..5.0 gamma
+                if adj["gamma"] > 0:
+                    gamma = 1.0 + (adj["gamma"] / 25.0) # up to 5.0
+                else:
+                    gamma = 1.0 / (1.0 + (abs(adj["gamma"]) / 25.0)) # down to 0.2
+                
+                lut = [pow(i / 255.0, 1.0 / gamma) * 255.0 for i in range(256)]
+                # Handle RGB vs Multi-channel
+                if pil_img.mode == 'RGB':
+                    lut = lut * 3
+                pil_img = pil_img.point(lut)
                 
             if adj.get("texture", 0) > 0:
                  pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(adj["texture"]), threshold=3))
@@ -338,6 +368,18 @@ class ImageViewer(QGraphicsView):
     def zoom_out(self):
         """Zooms out by the zoom_factor."""
         self.scale(1 / self.zoom_factor, 1 / self.zoom_factor)
+
+    def toggle_auto_fit(self):
+        """Toggles the auto-fit mode."""
+        self.auto_fit_mode = not self.auto_fit_mode
+        if self.auto_fit_mode:
+            self.fit_in_view()
+        return self.auto_fit_mode
+
+    def toggle_apply_on_load(self):
+        """Toggles persistent adjustments mode."""
+        self.apply_adj_on_load = not self.apply_adj_on_load
+        return self.apply_adj_on_load
 
     def set_zoom_level(self, scale_factor):
         """Sets the zoom level to an absolute scale factor."""
