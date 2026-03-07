@@ -2,3 +2,5 @@
 .thumbcache/
 __pycache__/
 *.pyc
+build/
+dist/

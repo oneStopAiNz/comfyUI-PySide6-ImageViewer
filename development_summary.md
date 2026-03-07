@@ -40,6 +40,16 @@ This document summarizes the evolution of the ComfyUI Image Viewer, highlighting
 *   **Context-Aware Shortcuts**: Resolved "Ambiguous shortcut" warnings and ensured `Ctrl+R` works globally across all focused widgets.
 *   **Focus View (V)**: Added a shortcut to collapse/restore all side panels instantly for an unobstructed image view.
 
+## Phase 6: Deployment & Build Automation
+*   **PyInstaller Integration**: Configured a specialized `.spec` file for bundling the PySide6 app into a single standalone Windows executable.
+*   **Custom Branding**: Generated and integrated a professional high-resolution application icon (`.ico`).
+*   **Build Workflows**: Established a reusable `.agent/workflows/build_exe.md` to allow one-click builds for future updates.
+
+## Phase 7: UI Refinement & Persistence
+*   **Persistent Adjustments (F10)**: Added a toggle to maintain image adjustment states (exposure, contrast, etc.) across different images.
+*   **Seamless Transitions**: Optimized the loading pipeline to prevent UI flickering when switching between images with active adjustments.
+*   **Direct Meta-Tagging**: Implemented immediate saving of color tags and notes directly into the PNG metadata, ensuring data travels with the image.
+
 ---
 
-**Current Status:** Feature-complete image viewer with integrated tagging, filtering, and performance-tuned image processing.
+**Current Status:** Production-ready standalone application with integrated workflow inspection, advanced image adjustments, and automated deployment pipelines.
