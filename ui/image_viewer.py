@@ -2,6 +2,7 @@ import os
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QPixmap, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLabel, QGraphicsRectItem, QGraphicsItem, QGraphicsLineItem
+from PIL import Image, ImageEnhance, ImageFilter
 
 class ImageViewer(QGraphicsView):
     """
@@ -110,7 +111,13 @@ class ImageViewer(QGraphicsView):
              
         self.original_pil = None # Set to None for lazy loading
         self.original_pixmap = pixmap
-        self.pixmap_item.setPixmap(pixmap)
+        
+        # Avoid flicker: Only set the initial pixmap if we are NOT planning to override it immediately
+        if not (self.apply_adj_on_load and self.current_adjustments):
+            self.pixmap_item.setPixmap(pixmap)
+        else:
+            self.pixmap_item.setPixmap(QPixmap()) # Clear old image to prevent ghosting
+            
         self.setSceneRect(self.pixmap_item.boundingRect())
         
         # Apply auto-fit if enabled
@@ -149,7 +156,6 @@ class ImageViewer(QGraphicsView):
             
         # Lazy load PIL if not already loaded
         if self.original_pil is None:
-            from PIL import Image
             try:
                 self.original_pil = Image.open(self.original_path)
                 if self.original_pil.mode != "RGB":
@@ -160,8 +166,7 @@ class ImageViewer(QGraphicsView):
 
         adj = self.pending_adj
         self.current_adjustments = adj
-        
-        from PIL import ImageEnhance, ImageFilter
+
         
         # Work on a copy of the cached original
         try:
