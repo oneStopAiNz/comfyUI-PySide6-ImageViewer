@@ -112,24 +112,34 @@ class ImageViewer(QGraphicsView):
         self.original_pil = None # Set to None for lazy loading
         self.original_pixmap = pixmap
         
-        # Avoid flicker: Only set the initial pixmap if we are NOT planning to override it immediately
-        if not (self.apply_adj_on_load and self.current_adjustments):
-            self.pixmap_item.setPixmap(pixmap)
+        # Avoid flicker: 
+        # If persistence is ON, we compute the adjusted pixmap IMMEDIATELY before setting it.
+        if self.apply_adj_on_load and self.current_adjustments:
+            # We must load the PIL image now to adjust it
+            try:
+                from PIL import Image
+                self.original_pil = Image.open(path)
+                if self.original_pil.mode != "RGB":
+                    self.original_pil = self.original_pil.convert("RGB")
+                
+                # Apply adjustments synchronously
+                adjusted_pixmap = self._do_apply_adjustments(adj=self.current_adjustments)
+                if adjusted_pixmap:
+                    self.pixmap_item.setPixmap(adjusted_pixmap)
+                else:
+                    self.pixmap_item.setPixmap(pixmap)
+            except Exception as e:
+                print(f"Sync adjustment error: {e}")
+                self.pixmap_item.setPixmap(pixmap)
         else:
-            self.pixmap_item.setPixmap(QPixmap()) # Clear old image to prevent ghosting
+            # Normal load or no adjustments
+            self.pixmap_item.setPixmap(pixmap)
             
         self.setSceneRect(self.pixmap_item.boundingRect())
         
         # Apply auto-fit if enabled
         if self.auto_fit_mode:
             self.fit_in_view()
-            
-        # Persistence: Apply current adjustments or reset
-        if self.apply_adj_on_load and self.current_adjustments:
-            self.apply_adjustments(self.current_adjustments)
-        else:
-            # Reset internal adjustment state for new image
-            self.current_adjustments = {}
             
         self.update_overlay(path, pixmap, color_tag)
 
@@ -149,10 +159,13 @@ class ImageViewer(QGraphicsView):
         if not self.update_timer.isActive():
             self.update_timer.start()
 
-    def _do_apply_adjustments(self):
-        """Lazily loads PIL image and applies filters."""
+    def _do_apply_adjustments(self, adj=None):
+        """
+        Lazily loads PIL image and applies filters.
+        If 'adj' is provided, it runs synchronously and returns the result instead of updating UI.
+        """
         if self.original_path is None:
-            return
+            return None
             
         # Lazy load PIL if not already loaded
         if self.original_pil is None:
@@ -162,61 +175,64 @@ class ImageViewer(QGraphicsView):
                     self.original_pil = self.original_pil.convert("RGB")
             except Exception as e:
                 print(f"Lazy load error: {e}")
-                return
+                return None
 
-        adj = self.pending_adj
-        self.current_adjustments = adj
-
+        # Use passed adj or pending adj
+        target_adj = adj if adj is not None else self.pending_adj
+        if adj is None:
+             self.current_adjustments = target_adj
         
         # Work on a copy of the cached original
         try:
             pil_img = self.original_pil
             
             # Application order matters. 
-            if adj.get("exposure", 0) != 0:
-                factor = 1.0 + (adj["exposure"] / 100.0)
+            if target_adj.get("exposure", 0) != 0:
+                factor = 1.0 + (target_adj["exposure"] / 100.0)
                 if factor <= 0: factor = 0.01
                 pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
                 
-            if adj.get("brightness", 0) != 0:
-                factor = 1.0 + (adj["brightness"] / 100.0)
+            if target_adj.get("brightness", 0) != 0:
+                factor = 1.0 + (target_adj["brightness"] / 100.0)
                 pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
                 
-            if adj.get("contrast", 0) != 0:
-                factor = 1.0 + (adj["contrast"] / 100.0)
+            if target_adj.get("contrast", 0) != 0:
+                factor = 1.0 + (target_adj["contrast"] / 100.0)
                 if factor <= 0: factor = 0.01
                 pil_img = ImageEnhance.Contrast(pil_img).enhance(factor)
 
-            if adj.get("gamma", 0) != 0:
+            if target_adj.get("gamma", 0) != 0:
                 # Gamma adjustment using a lookup table
                 # Positive slider -> gamma > 1 (brighter mids), Negative -> gamma < 1 (darker mids)
                 # Map -100..100 to roughly 0.2..5.0 gamma
-                if adj["gamma"] > 0:
-                    gamma = 1.0 + (adj["gamma"] / 25.0) # up to 5.0
+                if target_adj["gamma"] > 0:
+                    gammaValue = 1.0 + (target_adj["gamma"] / 25.0) # up to 5.0
                 else:
-                    gamma = 1.0 / (1.0 + (abs(adj["gamma"]) / 25.0)) # down to 0.2
+                    gammaValue = 1.0 / (1.0 + (abs(target_adj["gamma"]) / 25.0)) # down to 0.2
                 
-                lut = [pow(i / 255.0, 1.0 / gamma) * 255.0 for i in range(256)]
+                lut = [pow(i / 255.0, 1.0 / gammaValue) * 255.0 for i in range(256)]
                 # Handle RGB vs Multi-channel
                 if pil_img.mode == 'RGB':
                     lut = lut * 3
                 pil_img = pil_img.point(lut)
                 
-            if adj.get("texture", 0) > 0:
-                 pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(adj["texture"]), threshold=3))
+            if target_adj.get("texture", 0) > 0:
+                 pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(target_adj["texture"]), threshold=3))
 
-            # FAST CONVERSION: Avoid PNG/JPEG encoding buffer.
-            # Use raw data + QImage constructor.
+            # FAST CONVERSION: Use raw data + QImage constructor.
             data = pil_img.tobytes("raw", "RGB")
             qimg = QImage(data, pil_img.size[0], pil_img.size[1], QImage.Format_RGB888)
             
-            # IMPORTANT: QImage doesn't own the 'data' buffer. But here 'data' is a local bytes object
-            # that lives until qimg is used to create a QPixmap? 
-            # Actually, to be safe and avoid crashes if the GC eats 'data', we'll use QPixmap.fromImage which copies.
-            self.pixmap_item.setPixmap(QPixmap.fromImage(qimg))
+            result_pixmap = QPixmap.fromImage(qimg)
+            
+            if adj is None:
+                self.pixmap_item.setPixmap(result_pixmap)
+            
+            return result_pixmap
             
         except Exception as e:
             print(f"Filter error: {e}")
+            return None
 
     def update_overlay(self, path, pixmap, color_tag=None):
         """Updates the information overlay with filename and resolution."""
@@ -382,8 +398,18 @@ class ImageViewer(QGraphicsView):
         return self.auto_fit_mode
 
     def toggle_apply_on_load(self):
-        """Toggles persistent adjustments mode."""
+        """Toggles the persistence mode and applies/removes effect immediately."""
         self.apply_adj_on_load = not self.apply_adj_on_load
+        
+        # Immediate Effect:
+        if self.apply_adj_on_load:
+            if self.current_adjustments:
+                self.apply_adjustments(self.current_adjustments)
+        else:
+            # Revert to original
+            if self.original_pixmap:
+                self.pixmap_item.setPixmap(self.original_pixmap)
+                
         return self.apply_adj_on_load
 
     def set_zoom_level(self, scale_factor):

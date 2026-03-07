@@ -163,10 +163,6 @@ class MainWindow(QMainWindow):
         color_tag = all_metadata.get('color_tag', None)
         self.adjuster.set_notes(notes)
         
-        # Persistence: Only reset if persistence mode is OFF
-        if not self.viewer.apply_adj_on_load:
-            self.adjuster.reset_adjustments()
-        
         # Update Viewer with tag info
         self.viewer.update_overlay(path, self.viewer.pixmap_item.pixmap(), color_tag)
 
