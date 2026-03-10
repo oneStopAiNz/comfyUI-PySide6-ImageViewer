@@ -21,15 +21,27 @@ class GalleryPanel(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         
-        # Filter UI
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Filter:"))
+        # Filter and Sort UI
+        controls_layout = QHBoxLayout()
+        
+        # Filter
+        controls_layout.addWidget(QLabel("Filter:"))
         self.filter_combo = QComboBox()
         self.filter_combo.addItems(["All", "Red", "Yellow", "Green", "Blue", "Magenta"])
         self.filter_combo.currentTextChanged.connect(self.apply_filter)
-        filter_layout.addWidget(self.filter_combo)
-        filter_layout.addStretch()
-        self.layout.addLayout(filter_layout)
+        controls_layout.addWidget(self.filter_combo)
+        
+        controls_layout.addSpacing(10)
+        
+        # Sort
+        controls_layout.addWidget(QLabel("Sort:"))
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Date (Newest)", "Date (Oldest)", "Filename (A-Z)", "Filename (Z-A)"])
+        self.sort_combo.currentTextChanged.connect(self.reload_folder)
+        controls_layout.addWidget(self.sort_combo)
+        
+        controls_layout.addStretch()
+        self.layout.addLayout(controls_layout)
         
         self.list_widget = QListWidget()
         self.list_widget.setViewMode(QListView.IconMode)
@@ -73,8 +85,16 @@ class GalleryPanel(QWidget):
         search_pattern = os.path.join(self.current_folder, "*.png")
         self.image_paths = glob.glob(search_pattern)
         
-        # Strictly sort by creation time (ctime) - newest first
-        self.image_paths.sort(key=os.path.getctime, reverse=True)
+        # Determine sorting
+        sort_mode = self.sort_combo.currentText()
+        if sort_mode == "Date (Newest)":
+            self.image_paths.sort(key=os.path.getctime, reverse=True)
+        elif sort_mode == "Date (Oldest)":
+            self.image_paths.sort(key=os.path.getctime, reverse=False)
+        elif sort_mode == "Filename (A-Z)":
+            self.image_paths.sort(key=lambda p: os.path.basename(p).lower())
+        elif sort_mode == "Filename (Z-A)":
+            self.image_paths.sort(key=lambda p: os.path.basename(p).lower(), reverse=True)
 
         # Meta-data loading for color tags
         from utils.png_metadata import load_metadata_from_png
