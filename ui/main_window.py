@@ -10,6 +10,7 @@ from ui.image_adjust_panel import ImageAdjustPanel
 from utils.png_metadata import load_metadata_from_png, save_metadata_to_png, json
 from core.comfy_parser import parse_workflow
 from core.workflow_diff import compare_nodes
+from core.videoUtils import extract_frames_from_video
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -116,10 +117,40 @@ class MainWindow(QMainWindow):
         reload_action.triggered.connect(self.gallery.reload_folder)
         file_menu.addAction(reload_action)
 
+        file_menu.addSeparator()
+
+        import_video_action = QAction("Import Video", self)
+        import_video_action.triggered.connect(self.import_video)
+        file_menu.addAction(import_video_action)
+
     def open_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Image Directory")
         if folder_path:
             self.gallery.load_folder(folder_path)
+
+    def import_video(self):
+        """Prompts user to select a video and extracts frames."""
+        file_filter = "Video Files (*.mp4 *.mov *.avi);;All Files (*)"
+        video_path, _ = QFileDialog.getOpenFileName(self, "Select Video File", "", file_filter)
+        
+        if not video_path:
+            return
+            
+        self.statusBar().showMessage(f"Extracting frames from {os.path.basename(video_path)}...", 0)
+        
+        success, output_folder, error = extract_frames_from_video(video_path)
+        
+        if success:
+            self.statusBar().showMessage(f"Frames extracted to {os.path.basename(output_folder)}", 5000)
+            # Optionally open the new folder
+            reply = QMessageBox.question(self, "Extraction Successful", 
+                                       f"Extracted frames to:\n{output_folder}\n\nWould you like to open this folder?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.gallery.load_folder(output_folder)
+        else:
+            self.statusBar().showMessage("Extraction failed.", 5000)
+            QMessageBox.critical(self, "Error", f"Failed to extract frames:\n{error}")
 
     def on_image_selected(self, path):
         """Called when an image is selected in the GalleryPanel."""

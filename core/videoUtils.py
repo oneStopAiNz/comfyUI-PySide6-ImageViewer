@@ -59,6 +59,58 @@ def create_video_from_images(folder_path, output_path, pattern="image_%04d.png",
         print("Error: ffmpeg is not installed or not found in PATH.")
         return False
 
+def extract_frames_from_video(video_path):
+    """
+    Extracts all frames from a video file into a folder next to it.
+    Folder name: <video_name>_images
+    
+    Args:
+        video_path: Path to the input video file.
+    
+    Returns:
+        tuple (success, output_folder, error_message)
+    """
+    if not os.path.isfile(video_path):
+        return False, None, f"Video file {video_path} does not exist."
+    
+    # Setup paths
+    video_dir = os.path.dirname(video_path)
+    video_filename = os.path.basename(video_path)
+    video_name, _ = os.path.splitext(video_filename)
+    
+    output_folder = os.path.join(video_dir, f"{video_name}_images")
+    
+    # Create folder
+    try:
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+    except Exception as e:
+        return False, None, f"Failed to create folder: {str(e)}"
+    
+    # Build ffmpeg command
+    # -i: input
+    # output: path/to/folder/frame_%04d.png
+    output_pattern = os.path.join(output_folder, "frame_%04d.png")
+    
+    cmd = [
+        "ffmpeg",
+        "-i", video_path,
+        "-vsync", "0", # output frames as they are in the video
+        "-y",          # overwrite
+        output_pattern
+    ]
+    
+    try:
+        print(f"Extracting frames from {video_path} to {output_folder}...")
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return True, output_folder, None
+    except subprocess.CalledProcessError as e:
+        return False, output_folder, f"ffmpeg error: {e.stderr}"
+    except FileNotFoundError:
+        return False, None, "ffmpeg is not installed or not found in PATH."
+    except Exception as e:
+        return False, None, f"Unexpected error: {str(e)}"
+
 def convert_mkv_to_mp4(input_path, output_path=None):
     """
     Converts an MKV file to MP4 using ffmpeg with stream copy (no re-encoding).
