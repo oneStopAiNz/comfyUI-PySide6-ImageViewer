@@ -1,4 +1,7 @@
 import os
+import tempfile
+import shutil
+from PIL import Image
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QSplitter, QFileDialog, QMessageBox
 from PySide6.QtGui import QAction, QShortcut, QKeySequence
 from PySide6.QtCore import Qt
@@ -10,7 +13,8 @@ from ui.image_adjust_panel import ImageAdjustPanel
 from utils.png_metadata import load_metadata_from_png, save_metadata_to_png, json
 from core.comfy_parser import parse_workflow
 from core.workflow_diff import compare_nodes
-from core.videoUtils import extract_frames_from_video
+from core.videoUtils import extract_frames_from_video, create_video_from_path_list
+from core.imageUtils import apply_adjustments_to_pil
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -123,6 +127,10 @@ class MainWindow(QMainWindow):
         import_video_action.triggered.connect(self.import_video)
         file_menu.addAction(import_video_action)
 
+        create_video_action = QAction("Create Video", self)
+        create_video_action.triggered.connect(self.create_video)
+        file_menu.addAction(create_video_action)
+
     def open_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Select Image Directory")
         if folder_path:
@@ -151,6 +159,69 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage("Extraction failed.", 5000)
             QMessageBox.critical(self, "Error", f"Failed to extract frames:\n{error}")
+
+    def create_video(self):
+        """Creates a video from the currently visible images in the gallery."""
+        image_paths = self.gallery.get_visible_image_paths()
+        
+        if not image_paths:
+            QMessageBox.warning(self, "No Images", "No visible images in the gallery to create a video from.")
+            return
+            
+        file_filter = "Video Files (*.mp4);;All Files (*)"
+        output_path, _ = QFileDialog.getSaveFileName(self, "Save Video As", "output.mp4", file_filter)
+        
+        if not output_path:
+            return
+            
+        if not output_path.lower().endswith(".mp4"):
+            output_path += ".mp4"
+            
+        # Determine if we need to apply adjustments
+        use_adjustments = self.viewer.apply_adj_on_load and any(v != 0 for v in self.viewer.current_adjustments.values())
+        
+        temp_dir = None
+        paths_to_use = image_paths
+        
+        try:
+            if use_adjustments:
+                self.statusBar().showMessage(f"Processing {len(image_paths)} images with adjustments...", 0)
+                temp_dir = tempfile.mkdtemp()
+                paths_to_use = []
+                
+                for i, path in enumerate(image_paths):
+                    try:
+                        with Image.open(path) as img:
+                            if img.mode != "RGB":
+                                img = img.convert("RGB")
+                            
+                            adjusted_img = apply_adjustments_to_pil(img, self.viewer.current_adjustments)
+                            
+                            # Save to temp path
+                            ext = os.path.splitext(path)[1]
+                            temp_path = os.path.join(temp_dir, f"frame_{i:05d}{ext}")
+                            adjusted_img.save(temp_path)
+                            paths_to_use.append(temp_path)
+                    except Exception as e:
+                        print(f"Error processing frame {path}: {e}")
+                        # If one fails, we might still want to continue or abort. 
+                        # Let's continue for now but log.
+            
+            self.statusBar().showMessage(f"Creating video from {len(paths_to_use)} frames...", 0)
+            
+            success, error = create_video_from_path_list(paths_to_use, output_path)
+            
+            if success:
+                self.statusBar().showMessage(f"Video created: {os.path.basename(output_path)}", 5000)
+                QMessageBox.information(self, "Success", f"Video created successfully:\n{output_path}")
+            else:
+                self.statusBar().showMessage("Video creation failed.", 5000)
+                QMessageBox.critical(self, "Error", f"Failed to create video:\n{error}")
+                
+        finally:
+            # Clean up temp directory if it exists
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
 
     def on_image_selected(self, path):
         """Called when an image is selected in the GalleryPanel."""

@@ -210,3 +210,12 @@ class GalleryPanel(QWidget):
         if selected_items:
             return selected_items[0].data(Qt.UserRole)
         return None
+
+    def get_visible_image_paths(self):
+        """Returns the paths of all images currently visible in the gallery (obeying filters and sort)."""
+        paths = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if not item.isHidden():
+                paths.append(item.data(Qt.UserRole))
+        return paths

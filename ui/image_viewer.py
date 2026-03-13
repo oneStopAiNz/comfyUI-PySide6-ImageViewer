@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QPixmap, QImage, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLabel, QGraphicsRectItem, QGraphicsItem, QGraphicsLineItem
 from PIL import Image, ImageEnhance, ImageFilter
+from core.imageUtils import apply_adjustments_to_pil
 
 class ImageViewer(QGraphicsView):
     """
@@ -186,39 +187,9 @@ class ImageViewer(QGraphicsView):
         try:
             pil_img = self.original_pil
             
-            # Application order matters. 
-            if target_adj.get("exposure", 0) != 0:
-                factor = 1.0 + (target_adj["exposure"] / 100.0)
-                if factor <= 0: factor = 0.01
-                pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
-                
-            if target_adj.get("brightness", 0) != 0:
-                factor = 1.0 + (target_adj["brightness"] / 100.0)
-                pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
-                
-            if target_adj.get("contrast", 0) != 0:
-                factor = 1.0 + (target_adj["contrast"] / 100.0)
-                if factor <= 0: factor = 0.01
-                pil_img = ImageEnhance.Contrast(pil_img).enhance(factor)
-
-            if target_adj.get("gamma", 0) != 0:
-                # Gamma adjustment using a lookup table
-                # Positive slider -> gamma > 1 (brighter mids), Negative -> gamma < 1 (darker mids)
-                # Map -100..100 to roughly 0.2..5.0 gamma
-                if target_adj["gamma"] > 0:
-                    gammaValue = 1.0 + (target_adj["gamma"] / 25.0) # up to 5.0
-                else:
-                    gammaValue = 1.0 / (1.0 + (abs(target_adj["gamma"]) / 25.0)) # down to 0.2
-                
-                lut = [pow(i / 255.0, 1.0 / gammaValue) * 255.0 for i in range(256)]
-                # Handle RGB vs Multi-channel
-                if pil_img.mode == 'RGB':
-                    lut = lut * 3
-                pil_img = pil_img.point(lut)
-                
-            if target_adj.get("texture", 0) > 0:
-                 pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(target_adj["texture"]), threshold=3))
-
+            # Use shared utility for adjustments
+            pil_img = apply_adjustments_to_pil(pil_img, target_adj)
+            
             # FAST CONVERSION: Use raw data + QImage constructor.
             data = pil_img.tobytes("raw", "RGB")
             qimg = QImage(data, pil_img.size[0], pil_img.size[1], QImage.Format_RGB888)

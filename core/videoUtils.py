@@ -3,6 +3,78 @@ import os
 import sys
 import argparse
 import subprocess
+import tempfile
+
+def create_video_from_path_list(image_paths, output_path, fps=30, codec="libx264", crf=23):
+    """
+    Creates a video from a specific list of image paths using ffmpeg concat demuxer.
+    
+    Args:
+        image_paths: List of absolute paths to images.
+        output_path: Path for the output video file.
+        fps: Frames per second.
+        codec: Video codec.
+        crf: Quality level.
+    
+    Returns:
+        tuple (success, error_message)
+    """
+    if not image_paths:
+        return False, "No images provided."
+
+    # Create a temporary file for the ffmpeg concat demuxer
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, dir=os.path.dirname(output_path)) as f:
+            concat_file = f.name
+            for path in image_paths:
+                # FFmpeg concat demuxer requires paths to be escaped or quoted
+                # and relative to the concat file or absolute
+                safe_path = path.replace("'", "'\\''")
+                f.write(f"file '{safe_path}'\n")
+                f.write(f"duration {1.0/fps}\n")
+            
+            # The last image needs its duration specified if it's the only one, 
+            # or we can just add it again at the end for duration if needed, 
+            # but usually specifying duration for each works.
+            # Actually, for concat demuxer, the last file needs duration or it might be skipped
+            # depending on ffmpeg version. Standard practice is to repeat the last line without duration
+            # OR just specify duration for all.
+    except Exception as e:
+        return False, f"Failed to create temporary concat file: {str(e)}"
+
+    # Build ffmpeg command
+    cmd = [
+        "ffmpeg",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concat_file,
+        "-c:v", codec,
+        "-pix_fmt", "yuv420p", # Ensures compatibility with most players
+    ]
+    
+    if codec in ["libx264", "libx265"]:
+        cmd.extend(["-crf", str(crf)])
+    
+    cmd.extend([
+        "-y",
+        output_path
+    ])
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        success = True
+        error = None
+    except subprocess.CalledProcessError as e:
+        success = False
+        error = f"ffmpeg error: {e.stderr}"
+    except FileNotFoundError:
+        success = False
+        error = "ffmpeg is not installed or not found in PATH."
+    finally:
+        if os.path.exists(concat_file):
+            os.remove(concat_file)
+            
+    return success, error
 
 def create_video_from_images(folder_path, output_path, pattern="image_%04d.png", fps=30, codec="libx264", crf=23):
     """

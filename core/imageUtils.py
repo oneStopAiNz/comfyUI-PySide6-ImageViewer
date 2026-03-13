@@ -1,8 +1,56 @@
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import os
 import glob
 import argparse
 import sys
+
+def apply_adjustments_to_pil(pil_img, target_adj):
+    """
+    Applies image adjustments (exposure, brightness, contrast, gamma, texture) to a PIL Image.
+    
+    Args:
+        pil_img: PIL Image object.
+        target_adj: Dictionary of adjustment values.
+        
+    Returns:
+        Adjusted PIL Image.
+    """
+    try:
+        # Work on a copy if we want to avoid mutating, but usually we just return the result
+        # Application order matters. 
+        if target_adj.get("exposure", 0) != 0:
+            factor = 1.0 + (target_adj["exposure"] / 100.0)
+            if factor <= 0: factor = 0.01
+            pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
+            
+        if target_adj.get("brightness", 0) != 0:
+            factor = 1.0 + (target_adj["brightness"] / 100.0)
+            pil_img = ImageEnhance.Brightness(pil_img).enhance(factor)
+            
+        if target_adj.get("contrast", 0) != 0:
+            factor = 1.0 + (target_adj["contrast"] / 100.0)
+            if factor <= 0: factor = 0.01
+            pil_img = ImageEnhance.Contrast(pil_img).enhance(factor)
+
+        if target_adj.get("gamma", 0) != 0:
+            # Gamma adjustment using a lookup table
+            if target_adj["gamma"] > 0:
+                gammaValue = 1.0 + (target_adj["gamma"] / 25.0) # up to 5.0
+            else:
+                gammaValue = 1.0 / (1.0 + (abs(target_adj["gamma"]) / 25.0)) # down to 0.2
+            
+            lut = [pow(i / 255.0, 1.0 / gammaValue) * 255.0 for i in range(256)]
+            if pil_img.mode == 'RGB':
+                lut = lut * 3
+            pil_img = pil_img.point(lut)
+            
+        if target_adj.get("texture", 0) > 0:
+                pil_img = pil_img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(target_adj["texture"]), threshold=3))
+        
+        return pil_img
+    except Exception as e:
+        print(f"Error applying adjustments: {e}")
+        return pil_img
 
 def downsample_image(image, percentage):
     """
