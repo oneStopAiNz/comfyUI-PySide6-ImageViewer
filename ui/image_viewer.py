@@ -142,7 +142,17 @@ class ImageViewer(QGraphicsView):
         if self.auto_fit_mode:
             self.fit_in_view()
             
-        self.update_overlay(path, pixmap, color_tag)
+        # Sync comparison mode if active
+        if self.comparison_mode:
+            self.path_a = path
+            # Use the pixmap currently in pixmap_item (which may be adjusted)
+            self.pixmap_a = self.pixmap_item.pixmap()
+            if self.auto_fit_mode:
+                self._apply_comparison_scaling()
+            else:
+                self.update_comparison_rendering()
+        else:
+            self.update_overlay(path, pixmap, color_tag)
 
     def apply_adjustments(self, adj):
         """Debounced application of adjustments. Instant bypass if all values are zero."""
@@ -267,16 +277,63 @@ class ImageViewer(QGraphicsView):
         
         self.comparison_mode = not self.comparison_mode
         if self.comparison_mode:
+            # Ensure the current item is set to Image A
+            if self.path_a:
+                self.pixmap_item.setPixmap(self.pixmap_a)
+            
+            if self.auto_fit_mode:
+                self._apply_comparison_scaling()
+            else:
+                self.pixmap_item.setScale(1.0)
+                self.pixmap_item_b.setScale(1.0)
+
             self.clip_container.show()
             self.divider_line.show()
-            self.setDragMode(QGraphicsView.NoDrag) # Disable pan so mouse moves wipe
         else:
             self.clip_container.hide()
             self.divider_line.hide()
-            self.setDragMode(QGraphicsView.ScrollHandDrag)
+
+            
+            # Reset scales
+            self.pixmap_item.setScale(1.0)
+            self.pixmap_item_b.setScale(1.0)
+            
+            # If we were auto-fitting, return to normal fit for the current image
+            if self.auto_fit_mode:
+                self.fit_in_view()
         
         self.update_comparison_rendering()
         return self.comparison_mode
+
+    def _apply_comparison_scaling(self):
+        """Scales the smaller image to match the larger one while in comparison mode."""
+        if not self.pixmap_a or not self.pixmap_b:
+            return
+
+        w_a, h_a = self.pixmap_a.width(), self.pixmap_a.height()
+        w_b, h_b = self.pixmap_b.width(), self.pixmap_b.height()
+
+        # Decision: Scale smaller image to match larger one's area as best as possible
+        # We'll match the longer side of the smaller image to the longer side of the larger image.
+        
+        max_dim_a = max(w_a, h_a)
+        max_dim_b = max(w_b, h_b)
+
+        if max_dim_a >= max_dim_b:
+            # A is bigger or equal. Scale B up.
+            self.pixmap_item.setScale(1.0)
+            scale_b = max_dim_a / max_dim_b
+            self.pixmap_item_b.setScale(scale_b)
+        else:
+            # B is bigger. Scale A up.
+            self.pixmap_item_b.setScale(1.0)
+            scale_a = max_dim_b / max_dim_a
+            self.pixmap_item.setScale(scale_a)
+        
+        # Update scene rect to cover the largest item
+        self.setSceneRect(self.scene.itemsBoundingRect())
+        self.fit_in_view()
+
 
     def update_comparison_rendering(self):
         """Updates the clipping of the top image based on wipe_ratio."""
@@ -284,19 +341,28 @@ class ImageViewer(QGraphicsView):
             return
             
         # We use a rect on the container to clip its child (B)
+        # We must account for the scale of pixmap_item_b
+        scale_b = self.pixmap_item_b.scale()
         rect = self.pixmap_b.rect()
-        width = rect.width()
-        height = rect.height()
+        width = rect.width() * scale_b
+        height = rect.height() * scale_b
         
         clip_width = width * self.wipe_ratio
         
         # Divider is at clip_width. 
         # Left of divider = A, Right of divider = B.
         # Container visible area = [clip_width, 0, width-clip_width, height]
+        # visible_rect is in LOCAL coordinates of clip_container? 
+        # No, clip_container's rect defines the shape. 
+        # Since pixmap_item_b is a child of clip_container, and they both start at 0,0 usually.
+        # But wait, we didn't set position for either. They are at 0,0.
+        
         visible_rect = QRectF(clip_width, 0, width - clip_width, height)
         self.clip_container.setRect(visible_rect)
         
-        # Update divider line (in scene coordinates, but B is at 0,0)
+        # Update divider line (in scene coordinates)
+        # Note: If pixmap_item (A) is also scaled, we might need to align them.
+        # For now assume they both start at 0,0.
         self.divider_line.setLine(clip_width, 0, clip_width, height)
         
         # Update overlay text if in comparison mode
@@ -306,20 +372,27 @@ class ImageViewer(QGraphicsView):
             self.overlay.setText(f"COMPARING\n(Move Mouse to Wipe)\nA: {file_a}\nB: {file_b}")
             self.overlay.show()
 
+
     def mouseMoveEvent(self, event):
         """Tracks horizontal mouse movement to update wipe ratio."""
         if self.comparison_mode and self.pixmap_b:
-            # Map mouse to scene coordinates relative to the image
-            scene_pos = self.mapToScene(event.position().toPoint())
-            image_rect = self.pixmap_item_b.boundingRect()
-            
-            if image_rect.width() > 0:
-                # Calculate ratio based on X position relative to image bounds
-                ratio = (scene_pos.x() - image_rect.left()) / image_rect.width()
-                self.wipe_ratio = max(0.0, min(1.0, ratio))
-                self.update_comparison_rendering()
+            if event.buttons() == Qt.NoButton:
+                # Map mouse to scene coordinates relative to the image
+                scene_pos = self.mapToScene(event.position().toPoint())
+                image_rect = self.pixmap_item_b.sceneBoundingRect() # Use sceneBoundingRect for scaled size
+                
+                if image_rect.width() > 0:
+                    # Calculate ratio based on X position relative to image bounds
+                    ratio = (scene_pos.x() - image_rect.left()) / image_rect.width()
+                    self.wipe_ratio = max(0.0, min(1.0, ratio))
+                    self.update_comparison_rendering()
+            else:
+                # If buttons are pressed (Left click for panning), allow QGraphicsView to handle it
+                super().mouseMoveEvent(event)
         else:
             super().mouseMoveEvent(event)
+
+
 
     def resizeEvent(self, event):
         """Keep overlay anchored when view is resized."""
@@ -364,9 +437,19 @@ class ImageViewer(QGraphicsView):
     def toggle_auto_fit(self):
         """Toggles the auto-fit mode."""
         self.auto_fit_mode = not self.auto_fit_mode
+        
+        if self.comparison_mode:
+            if self.auto_fit_mode:
+                self._apply_comparison_scaling()
+            else:
+                self.pixmap_item.setScale(1.0)
+                self.pixmap_item_b.setScale(1.0)
+            self.update_comparison_rendering()
+            
         if self.auto_fit_mode:
             self.fit_in_view()
         return self.auto_fit_mode
+
 
     def toggle_apply_on_load(self):
         """Toggles the persistence mode and applies/removes effect immediately."""

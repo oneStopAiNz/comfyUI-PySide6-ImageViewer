@@ -68,6 +68,9 @@ class MainWindow(QMainWindow):
         # Store initial splitter sizes for toggling
         self.last_splitter_sizes = [200, 500, 250, 250]
 
+        # Enable drag and drop
+        self.setAcceptDrops(True)
+
     def setup_shortcuts(self):
         """Set up window-level shortcuts that work regardless of focus."""
         QShortcut(QKeySequence(Qt.Key_Left), self, self.gallery.select_previous)
@@ -374,4 +377,33 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Persistent Adjustments: {status}", 3000)
 
     # keyPressEvent is now handled via QShortcut for better focus handling
+
+    def dragEnterEvent(self, event):
+        """Allows dragging files/folders into the window."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        """Handles dropping files/folders into the window."""
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+            
+        # Get the first path
+        path = urls[0].toLocalFile()
+        if not path:
+            return
+            
+        if os.path.isdir(path):
+            # If it's a directory, load it
+            self.gallery.load_folder(path)
+            self.statusBar().showMessage(f"Opened folder: {path}", 3000)
+        elif os.path.isfile(path):
+            # If it's a file, load its containing directory
+            folder_path = os.path.dirname(path)
+            self.gallery.load_folder(folder_path)
+            # Try to select the specific file if possible
+            # (Note: load_folder is async/deferred in some implementations, 
+            # but here it seems synchronous enough or at least populates list)
+            self.statusBar().showMessage(f"Opened folder containing: {os.path.basename(path)}", 3000)
 
